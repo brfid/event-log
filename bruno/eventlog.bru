@@ -1,0 +1,33 @@
+meta {
+  name: eventlog
+  type: http
+  seq: 1
+}
+
+post {
+  url: https://api.github.com/repos/brfid/eventlog/dispatches
+  body: json
+  auth: inherit
+}
+
+headers {
+  Authorization: token {{GITHUB_TOKEN}}
+  Accept: application/vnd.github+json
+}
+
+body:json {
+  {
+    "event_type": "log_event",
+    "client_payload": {
+      "text": "{{log_message}}"
+    }
+  }
+}
+
+vars:pre-request {
+  log_message: hey what's up
+}
+
+settings {
+  encodeUrl: true
+}
