@@ -1,18 +1,8 @@
 # Event Log
 
-An intelligent event logging system designed for iOS Shortcuts that parses natural language input for nutrition, exercise, and journal entries, then stores structured data in an Obsidian vault using AI-powered text analysis.
+Event logger that captures arbitrary events via Siri with GPS coordinates. Uses AI to parse and categorize entries into a structured Obsidian vault formatted for the Dataview plugin.
 
-## Features
-
-- **iOS Shortcuts Integration**: Native iOS/macOS Shortcuts support with automatic GPS location capture
-- **Natural Language Processing**: Convert free-form text into structured data using OpenAI GPT-4o
-- **Multi-Category Support**: Handles nutrition (calories), exercise (repetitions), and journal entries
-- **Obsidian Integration**: Automatically organizes entries in daily markdown files with YAML frontmatter
-- **GitHub Actions Workflow**: Serverless processing via GitHub repository dispatch events
-- **Automatic Location Tracking**: GPS coordinates captured seamlessly via iOS location services
-- **Automatic Git Sync**: Bi-directional synchronization with remote Obsidian vault
-- **Time Intelligence**: Parses relative time references ("15 minutes ago", "this morning")
-- **Command Line Interface**: Alternative CLI access for direct script execution
+Originally built to count trains. Also tracks meals (with calorie estimates), workouts (with rep counts), and anything else you can say to Siri.
 
 ## Quick Start
 
@@ -93,6 +83,9 @@ python scripts/log_event.py "Had a sandwich and coffee for lunch"
 
 # With location
 python scripts/log_event.py "Morning jog" "40.7128,-74.0060"
+
+# Random events
+python scripts/log_event.py "Saw a freight train headed north"
 ```
 
 ## Project Structure
@@ -134,16 +127,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.VAULT_TOKEN }}
-          
+
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-          
+
       - name: Install dependencies
         run: |
           pip install openai python-dotenv ruamel.yaml
-          
+
       - name: Log event
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -152,7 +145,7 @@ jobs:
           VAULT_DIR: ${{ github.workspace }}
         run: |
           python scripts/log_event.py "${{ github.event.client_payload.text }}" "${{ github.event.client_payload.latlong }}"
-          
+
       - name: Commit and push changes
         run: |
           git config --local user.email "action@github.com"
@@ -196,18 +189,22 @@ Copy these files from this repository to your vault repository:
 Edit `prompts/log_normalize.yml` to customize how the AI parses your input. The system supports:
 
 - **Nutrition entries**: Automatically estimates calories
-- **Exercise entries**: Extracts exercise types and repetition counts  
-- **Journal entries**: Captures general life events and thoughts
+- **Exercise entries**: Extracts exercise types and repetition counts
+- **Journal entries**: Captures general life events and thoughts (trains, birds, weather, etc.)
 - **Time parsing**: Converts relative time references to absolute timestamps
 
 ## Data Format
 
-Entries are stored in daily markdown files (`YYYY-MM-DD.md`) with YAML frontmatter:
+Entries are stored in daily markdown files (`YYYY-MM-DD.md`) with YAML frontmatter formatted for Obsidian's Dataview plugin:
 
 ```yaml
 ---
 date: 2024-01-15
 events:
+  journal:
+    - time: "14:30"
+      event: "Freight train headed north, 47 cars"
+      latlong: "40.7128,-74.0060"
   nutrition:
     - time: "12:30"
       event: "Had a sandwich and coffee for lunch"
@@ -221,10 +218,16 @@ events:
           reps: 20
         - exercise: "sit-ups"
           reps: 50
-  journal:
-    - time: "19:30"
-      event: "Beautiful sunset today"
+      latlong: "40.7128,-74.0060"
 ---
+```
+
+Query with Dataview:
+```dataview
+TABLE time, event, latlong
+FROM "daily"
+WHERE file.day = date(today)
+FLATTEN events.journal as entry
 ```
 
 ## Integration Methods
