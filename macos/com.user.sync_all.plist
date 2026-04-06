@@ -1,7 +1,7 @@
-<!-- 
-- `com.user.sync_all.plist`
-- copy to `~/Library/LaunchAgents` to run logged in and awake
-- 
+<!--
+- com.user.sync_all.plist
+- Copy to ~/Library/LaunchAgents to run while logged in and awake.
+- Replace /Users/USERNAME with your actual home directory path.
 -->
 
 <?xml version="1.0" encoding="UTF-8"?>
@@ -12,9 +12,9 @@
     <string>com.user.configsync</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/opt/homebrew/bin/python3.11</string>
-        <!-- *** Update home path or use a wrapper script *** -->
-        <string>$HOME/.config/scripts/sync_all.py</string>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>exec "$HOME/.config/scripts/sync_all_wrapper.sh"</string>
     </array>
     <key>StartInterval</key>
     <integer>600</integer>
@@ -24,8 +24,5 @@
     <string>/tmp/config_sync_stderr.log</string>
     <key>RunAtLoad</key>
     <true/>
-    <key>WorkingDirectory</key>
-    <!-- *** Update home path or use a wrapper script *** -->
-    <string>$HOME/.config/scripts</string>
 </dict>
 </plist>

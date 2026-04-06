@@ -22,7 +22,11 @@ OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
 
 
 def _load_system_prompt(path):
-    """Loads the system prompt text from a specified YAML file using ruamel.yaml."""
+    """Loads and assembles the full system prompt from a YAML file.
+
+    Reads the system_prompt, output_format, and examples keys and combines
+    them into a single prompt string sent to the model.
+    """
     if not path.is_file():
         raise FileNotFoundError(f"Prompt file not found at: {path}")
 
@@ -36,7 +40,21 @@ def _load_system_prompt(path):
             prompt = prompt_data.get("system_prompt")
             if not prompt:
                 raise ValueError(f"'system_prompt' key not found in {path}")
-            return str(prompt)
+
+            parts = [str(prompt)]
+
+            if fmt := prompt_data.get("output_format"):
+                parts.append("\n**Output format notes:**")
+                for item in fmt:
+                    parts.append(f"- {item}")
+
+            if examples := prompt_data.get("examples"):
+                parts.append("\n**Examples:**")
+                for ex in examples:
+                    parts.append(f"Input: {ex.get('user_input', '')}")
+                    parts.append(f"Output: {json.dumps(ex.get('json_output', {}))}")
+
+            return "\n".join(parts)
     except Exception as e:
         raise ValueError(f"Error loading or parsing prompt file: {e}") from e
 

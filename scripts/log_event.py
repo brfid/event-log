@@ -201,34 +201,23 @@ def process_log_event(
 ):
     """Process and log the event, pure function except for I/O."""
     prompt_file_path = prompts_dir / "log_normalize.yml"
-    print(
-        f"[DEBUG] text={text}, latlong={latlong}, prompt_file_path={prompt_file_path}"
-    )
     try:
         ai_response = get_structured_log_entry(text, prompt_file_path)
-        print(f"[DEBUG] ai_response={ai_response}")
     except Exception as e:
         _handle_error(f"OpenAI parse failed: {e}")
 
     local_tz = ZoneInfo(timezone)
     event_dt = get_event_datetime(ai_response, local_tz)
-    print(f"[DEBUG] event_dt={event_dt}")
     result = build_event_from_response(text, ai_response, event_dt, latlong)
-    print(f"[DEBUG] build_event_from_response result={result}")
     if not result:
-        print("[DEBUG] No event to log.")
         return
     category, payload = result
 
-    year = event_dt.strftime("%Y")
-    month = event_dt.strftime("%m")
     date_str = event_dt.strftime("%Y-%m-%d")
-    md_path = vault_dir / "daily" / year / month / f"{date_str}.md"
-    print(f"[DEBUG] md_path={md_path}")
+    md_path = vault_dir / "daily" / event_dt.strftime("%Y") / event_dt.strftime("%m") / f"{date_str}.md"
 
     post = load_or_create_post(md_path)
     updated_post = append_event_to_post(post, category, payload)
-    print(f"[DEBUG] updated_post={updated_post}")
     write_post(updated_post, md_path)
 
 
@@ -236,3 +225,7 @@ def main():
     """Thin CLI entry point."""
     text, latlong = parse_args_and_env(sys.argv, os.environ)
     process_log_event(text, latlong)
+
+
+if __name__ == "__main__":
+    main()

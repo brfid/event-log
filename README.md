@@ -1,118 +1,81 @@
-# Event Log
+# event-log
 
-Event logger that captures arbitrary events via Siri with GPS coordinates. Uses AI to parse and categorize entries into a structured Obsidian vault formatted for the Dataview plugin.
+Voice-to-structured-data pipeline. Siri captures free-text events with GPS
+coordinates, GitHub Actions runs an LLM parser, and results land as queryable
+YAML frontmatter in a git-backed Obsidian vault.
 
-Originally built to count trains. Also tracks meals (with calorie estimates), workouts (with rep counts), and anything else you can say to Siri.
+No app. No database. No server.
 
-## Quick Start
+## How it works
 
-### iOS/macOS Shortcuts Setup (Recommended)
+```
+Siri shortcut
+  ├─ captures text + GPS
+  └─ POST → GitHub repository_dispatch
+              └─ GitHub Actions
+                   ├─ OpenAI parses text → structured JSON
+                   ├─ Python writes YAML frontmatter to daily/<YYYY>/<MM>/<YYYY-MM-DD>.md
+                   └─ git commit + push
+```
 
-**Prerequisites:**
-- iOS 16+ or macOS 13+ device
-- GitHub personal access token
+The LLM classifies each entry as nutrition (with calorie estimate), exercise
+(with rep counts), or journal, and resolves relative time references
+("15 minutes ago") to UTC timestamps. A prompt template (`prompts/log_normalize.yml`)
+controls parsing behavior.
+
+## Data format
+
+Daily notes use YAML frontmatter queryable by Obsidian Dataview:
+
+```yaml
+---
+date: 2024-01-15
+events:
+  journal:
+    - time: "14:30"
+      event: "Freight train headed north, 47 cars"
+      latlong: "40.7128,-74.0060"
+  nutrition:
+    - time: "12:30"
+      event: "Sandwich and coffee"
+      kcals: 450
+      latlong: "40.7128,-74.0060"
+  reps:
+    - time: "07:00"
+      event: "20 pushups, 50 situps"
+      exercises:
+        - exercise: push-ups
+          reps: 20
+        - exercise: sit-ups
+          reps: 50
+---
+```
+
+## Setup
+
+### Prerequisites
+
+- iOS 16+ / macOS 13+
+- GitHub personal access token (`repo` + `workflow` scopes)
 - OpenAI API key
-- Git repository for your Obsidian vault
 
-**Setup Steps:**
+### 1. Configure the vault repository
 
-1. **Create GitHub Repository**
-   - Fork or create a new repository for your Obsidian vault
-   - Enable GitHub Actions in repository settings
-   - Note your repository URL: `https://github.com/USERNAME/REPO`
+Add these files to your Obsidian vault repo:
 
-2. **Generate GitHub Personal Access Token**
-   - Go to GitHub Settings → Developer settings → Personal access tokens
-   - Create token with `repo` and `workflow` permissions
-   - Save the token securely
+- `scripts/log_event.py`
+- `scripts/openai_parser.py`
+- `prompts/log_normalize.yml`
 
-3. **Set up GitHub Actions Workflow**
-   - Add the Python scripts from this repository to your vault repo
-   - Configure GitHub Actions workflow (see [GitHub Actions Setup](#github-actions-setup))
+Add repository secrets:
 
-4. **Create iOS Shortcut**
-   - Open iOS Shortcuts app
-   - Create new shortcut with these actions:
-     ```
-     1. Get My Location (with permission)
-     2. Ask for Text
-     3. Get Contents of URL:
-        - URL: https://api.github.com/repos/USERNAME/REPO/dispatches
-        - Method: POST
-        - Headers:
-          - authorization: token YOUR_GITHUB_TOKEN
-          - accept: application/vnd.github+json
-        - Request Body (JSON):
-          {
-            "event_type": "log_event",
-            "client_payload": {
-              "text": "[Text from Step 2]",
-              "latlong": "[Latitude from Step 1],[Longitude from Step 1]"
-            }
-          }
-     ```
+| Secret | Purpose |
+|--------|---------|
+| `OPENAI_API_KEY` | LLM parsing |
+| `VAULT_TOKEN` | Git push from Actions |
+| `TIMEZONE` | Local time resolution (default: `America/New_York`) |
 
-5. **Add to Home Screen/Widget**
-   - Name your shortcut (e.g., "Log Event")
-   - Add to Home Screen or Shortcuts widget for quick access
-
-### Alternative: Command Line Interface
-
-For development or server environments:
-
-**Prerequisites:**
-- Python 3.9+
-- OpenAI API key
-- Git repository for Obsidian vault
-
-**Installation:**
-```bash
-# Clone and setup
-git clone <repository-url>
-cd event-log
-pip install -r requirements.txt
-
-# Configure environment
-cp .env.example .env  # Edit with your API keys
-```
-
-**Usage:**
-```bash
-# Basic logging
-python scripts/log_event.py "Had a sandwich and coffee for lunch"
-
-# With location
-python scripts/log_event.py "Morning jog" "40.7128,-74.0060"
-
-# Random events
-python scripts/log_event.py "Saw a freight train headed north"
-```
-
-## Project Structure
-
-```
-event-log/
-├── scripts/
-│   ├── log_event.py          # Main logging script
-│   └── openai_parser.py      # OpenAI API integration
-├── prompts/
-│   └── log_normalize.yml     # AI parsing prompt configuration
-├── macos/
-│   ├── push_vault.py         # Git synchronization utility
-│   └── com.user.sync_all.plist # macOS automation configuration
-├── bruno/                    # API testing configuration
-│   ├── eventlog.bru          # Bruno HTTP client tests
-│   └── environments/
-└── requirements.txt          # Python dependencies
-```
-
-## GitHub Actions Setup
-
-To enable serverless processing of your iOS Shortcut requests, you'll need to set up a GitHub Actions workflow in your Obsidian vault repository.
-
-### 1. Add Workflow File
-
-Create `.github/workflows/log-event.yml` in your vault repository:
+Add `.github/workflows/log-event.yml`:
 
 ```yaml
 name: Log Event
@@ -127,206 +90,69 @@ jobs:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.VAULT_TOKEN }}
-
-      - name: Setup Python
-        uses: actions/setup-python@v4
+      - uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          pip install openai python-dotenv ruamel.yaml
-
-      - name: Log event
+          python-version: "3.11"
+      - run: pip install openai python-dotenv ruamel.yaml
+      - run: >
+          python scripts/log_event.py
+          "${{ github.event.client_payload.text }}"
+          "${{ github.event.client_payload.latlong }}"
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: gpt-4o
-          TIMEZONE: ${{ secrets.TIMEZONE || 'America/New_York' }}
+          TIMEZONE: ${{ secrets.TIMEZONE }}
           VAULT_DIR: ${{ github.workspace }}
-        run: |
-          python scripts/log_event.py "${{ github.event.client_payload.text }}" "${{ github.event.client_payload.latlong }}"
-
-      - name: Commit and push changes
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+      - run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Action"
           git add .
-          git diff --staged --quiet || git commit -m "Add event: ${{ github.event.client_payload.text }}"
+          git diff --staged --quiet || git commit -m "log: ${{ github.event.client_payload.text }}"
           git push
 ```
 
-### 2. Add Repository Secrets
+### 2. Create the iOS shortcut
 
-In your vault repository settings, add these secrets:
-- `OPENAI_API_KEY`: Your OpenAI API key
-- `VAULT_TOKEN`: GitHub personal access token with repo permissions
-- `TIMEZONE`: Your local timezone (optional, defaults to America/New_York)
+Actions:
+1. **Get My Location**
+2. **Ask for Text**
+3. **Get Contents of URL** (POST):
+   - URL: `https://api.github.com/repos/<owner>/<repo>/dispatches`
+   - Headers: `authorization: token <PAT>`, `accept: application/vnd.github+json`
+   - Body: `{"event_type": "log_event", "client_payload": {"text": "<input>", "latlong": "<lat>,<lon>"}}`
 
-### 3. Add Script Files
-
-Copy these files from this repository to your vault repository:
-- `scripts/log_event.py`
-- `scripts/openai_parser.py`
-- `prompts/log_normalize.yml`
-- `requirements.txt`
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Required | Description | Default |
-|----------|----------|-------------|---------|
-| `OPENAI_API_KEY` | Yes | OpenAI API key for text parsing | - |
-| `OPENAI_MODEL` | No | OpenAI model to use | `gpt-4o` |
-| `TIMEZONE` | No | Local timezone for timestamp parsing | `America/New_York` |
-| `VAULT_DIR` | No | Path to Obsidian vault directory | Parent directory of script |
-| `GITHUB_URL` | No | Git repository URL for vault sync | - |
-| `GITHUB_TOKEN` | No | GitHub personal access token | - |
-| `BRANCH` | No | Git branch for vault sync | `main` |
-
-### AI Prompt Customization
-
-Edit `prompts/log_normalize.yml` to customize how the AI parses your input. The system supports:
-
-- **Nutrition entries**: Automatically estimates calories
-- **Exercise entries**: Extracts exercise types and repetition counts
-- **Journal entries**: Captures general life events and thoughts (trains, birds, weather, etc.)
-- **Time parsing**: Converts relative time references to absolute timestamps
-
-## Data Format
-
-Entries are stored in daily markdown files (`YYYY-MM-DD.md`) with YAML frontmatter formatted for Obsidian's Dataview plugin:
-
-```yaml
----
-date: 2024-01-15
-events:
-  journal:
-    - time: "14:30"
-      event: "Freight train headed north, 47 cars"
-      latlong: "40.7128,-74.0060"
-  nutrition:
-    - time: "12:30"
-      event: "Had a sandwich and coffee for lunch"
-      kcals: 450
-      latlong: "40.7128,-74.0060"
-  reps:
-    - time: "07:00"
-      event: "Morning workout: 20 pushups, 50 situps"
-      exercises:
-        - exercise: "push-ups"
-          reps: 20
-        - exercise: "sit-ups"
-          reps: 50
-      latlong: "40.7128,-74.0060"
----
-```
-
-Query with Dataview:
-```dataview
-TABLE time, event, latlong
-FROM "daily"
-WHERE file.day = date(today)
-FLATTEN events.journal as entry
-```
-
-## Integration Methods
-
-### Primary: iOS Shortcuts + GitHub Actions
-
-**Workflow:**
-1. iOS Shortcut captures GPS location and user text input
-2. HTTP POST request sent to GitHub repository dispatch API
-3. GitHub Actions workflow triggered automatically
-4. Python scripts process the event and update Obsidian vault
-5. Changes committed and pushed to repository
-
-**Request Format:**
-```json
-POST https://api.github.com/repos/USERNAME/REPO/dispatches
-Headers:
-  authorization: token YOUR_GITHUB_TOKEN
-  accept: application/vnd.github+json
-
-Body:
-{
-  "event_type": "log_event",
-  "client_payload": {
-    "text": "Had a great workout",
-    "latlong": "40.7128,-74.0060"  // optional
-  }
-}
-```
-
-### Alternative: Direct CLI
-
-For local development or server environments where you can run Python directly.
-
-## API Reference
-
-### Core Functions
-
-#### `log_event.py`
-Main entry point for logging events.
-
-**Usage:**
-```python
-from scripts.log_event import process_log_event
-
-process_log_event(
-    text="your log entry",
-    latlong="40.7128,-74.0060",  # optional
-    timezone="America/New_York",
-    vault_dir=Path("/path/to/vault"),
-    prompts_dir=Path("/path/to/prompts")
-)
-```
-
-#### `openai_parser.py`
-Handles AI-powered text parsing.
-
-**Usage:**
-```python
-from scripts.openai_parser import get_structured_log_entry
-
-result = get_structured_log_entry(
-    "Had a protein shake",
-    Path("prompts/log_normalize.yml")
-)
-# Returns: {"parsed": {"kcals": 200}, "datetime_utc": "2024-01-15T17:30:00Z"}
-```
-
-### Vault Synchronization
-
-The `macos/push_vault.py` script provides automatic Git synchronization:
+### CLI alternative
 
 ```bash
-python macos/push_vault.py
+pip install openai python-dotenv ruamel.yaml
+python scripts/log_event.py "Had a sandwich and coffee" "40.7128,-74.0060"
 ```
 
-Features:
-- Automatic conflict resolution via file renaming
-- Intelligent commit messages from diff content
-- Bidirectional sync (pull before push)
-- Stash/unstash of local changes
+## Vault sync (macOS)
 
-## Development
+`macos/push_vault.py` handles bidirectional git sync with conflict resolution
+(renames conflicted files rather than blocking). Run it on a timer via launchd
+(`macos/com.user.sync_all.plist`).
 
-### Testing with Bruno
+## Repository structure
 
-Use the included Bruno API collection to test GitHub Actions integration:
+```
+scripts/
+  log_event.py          Main entry point
+  openai_parser.py      OpenAI structured output client
+prompts/
+  log_normalize.yml     LLM prompt template and examples
+macos/
+  push_vault.py         Git sync with conflict resolution
+  com.user.sync_all.plist  launchd timer
+bruno/                  API test collection (Bruno)
+```
 
-1. Install [Bruno](https://github.com/usebruno/bruno)
-2. Open the `bruno/` directory in Bruno
-3. Configure your `GITHUB_TOKEN` in the environment
-4. Run the `eventlog` request to test the API
+## Environment variables
 
-## Dependencies
-
-- `openai`: OpenAI API client for text parsing
-- `python-dotenv`: Environment variable management
-- `ruamel.yaml`: YAML processing with comment preservation
-
-## License
-
-This project is licensed under the MIT License.
+| Variable | Required | Default | Purpose |
+|----------|----------|---------|---------|
+| `OPENAI_API_KEY` | Yes | — | LLM parsing |
+| `OPENAI_MODEL` | No | `gpt-4o` | Model selection |
+| `TIMEZONE` | No | `America/New_York` | Time resolution |
+| `VAULT_DIR` | No | Parent of script | Vault root |

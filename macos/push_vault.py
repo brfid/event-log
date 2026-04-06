@@ -8,6 +8,7 @@ Git sync script for an Obsidian vault.
 
 import os
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -60,9 +61,14 @@ def set_authenticated_remote() -> None:
     if not GITHUB_URL or not GITHUB_TOKEN:
         log("[ERROR] GITHUB_URL and GITHUB_TOKEN must be defined in the environment.")
         sys.exit(1)
-    # Avoid logging the token
     authenticated_url = GITHUB_URL.replace("https://", f"https://{GITHUB_TOKEN}@")
     run_git_command(["remote", "set-url", "origin", authenticated_url])
+
+
+def reset_remote_url() -> None:
+    """Remove token from remote URL after sync completes."""
+    if GITHUB_URL:
+        run_git_command(["remote", "set-url", "origin", GITHUB_URL])
 
 
 def get_commit_delta() -> tuple[int, int]:
@@ -181,6 +187,7 @@ def sync_vault() -> None:
         log("Push completed.", also_print=True)
 
     restore_stash_if_needed()
+    reset_remote_url()
     log("=== Vault sync complete ===\n", also_print=True)
     print(f"See log file for details: {LOGFILE}")
 
